@@ -370,6 +370,10 @@ export interface NotificationPref {
   push_enabled: boolean;
   severities: Severity[];
   quiet_hours: QuietHours | null;
+  /** E.164 WhatsApp number (e.g. +996555123456). Null until the user opts in. */
+  whatsapp_number: string | null;
+  /** WhatsApp template alerts enabled for this user. */
+  whatsapp_enabled: boolean;
 }
 
 export interface PushToken {

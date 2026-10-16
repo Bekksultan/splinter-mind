@@ -5,10 +5,12 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { Stack } from 'expo-router';
+import { Controller, useForm } from 'react-hook-form';
 import { useTheme } from '../constants/theme';
 import { useThemeMode } from '../stores/theme';
 import { useAuthStore } from '../stores/auth';
@@ -17,9 +19,11 @@ import {
   useUpdateNotificationPrefs,
 } from '../services/business';
 import { shouldUseDemo } from '../lib/demo';
-import { ErrorState, LoadingState } from '../components/ui';
+import { ErrorState, LoadingState, PrimaryButton } from '../components/ui';
 import { humanize } from '../lib/utils';
 import type { Severity } from '../types';
+
+const E164_RE = /^\+\d{7,15}$/;
 
 const SEVERITIES: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
 const DEFAULT_SEVERITIES: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
@@ -90,6 +94,119 @@ function ToggleRow({
         thumbColor={colors.surface}
       />
     </View>
+  );
+}
+
+function WhatsAppSection(): React.JSX.Element {
+  const { colors } = useTheme();
+  const prefsQuery = useNotificationPrefs();
+  const updatePrefs = useUpdateNotificationPrefs();
+  const [waEnabled, setWaEnabled] = React.useState(false);
+  const {
+    control,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<{ whatsapp_number: string }>({
+    defaultValues: { whatsapp_number: '' },
+  });
+
+  React.useEffect(() => {
+    if (prefsQuery.data) {
+      reset({ whatsapp_number: prefsQuery.data.whatsapp_number ?? '' });
+      setWaEnabled(prefsQuery.data.whatsapp_enabled ?? false);
+    }
+  }, [prefsQuery.data, reset]);
+
+  const onSave = handleSubmit((values) => {
+    const number = values.whatsapp_number.trim();
+    updatePrefs.mutate({
+      whatsapp_number: number === '' ? null : number,
+      whatsapp_enabled: waEnabled,
+    });
+  });
+
+  return (
+    <SectionCard
+      title="WhatsApp"
+      description="Optional second channel. Alert messages use an approved Meta template — never free text."
+    >
+      {prefsQuery.isLoading ? (
+        <LoadingState message="Loading preferences…" />
+      ) : prefsQuery.isError ? (
+        <ErrorState
+          message="Couldn't load notification preferences."
+          onRetry={() => {
+            void prefsQuery.refetch();
+          }}
+        />
+      ) : (
+        <View>
+          <ToggleRow
+            label="WhatsApp alerts"
+            hint="Send template alerts to the number below"
+            value={waEnabled}
+            onChange={setWaEnabled}
+          />
+          <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
+            WhatsApp number
+          </Text>
+          <Controller
+            control={control}
+            name="whatsapp_number"
+            rules={{
+              validate: (v) => {
+                const t = v.trim();
+                if (!waEnabled) return true;
+                if (t === '') return 'Enter your WhatsApp number to enable alerts';
+                return (
+                  E164_RE.test(t) || 'Use international format, e.g. +996555123456'
+                );
+              },
+            }}
+            render={({ field: { onChange, onBlur, value } }) => (
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    color: colors.text,
+                    borderColor: errors.whatsapp_number
+                      ? colors.danger
+                      : colors.border,
+                    backgroundColor: colors.surface,
+                  },
+                ]}
+                value={value}
+                onChangeText={onChange}
+                onBlur={onBlur}
+                placeholder="+996555123456"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="phone-pad"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            )}
+          />
+          {errors.whatsapp_number ? (
+            <Text style={[styles.fieldError, { color: colors.danger }]}>
+              {errors.whatsapp_number.message}
+            </Text>
+          ) : null}
+          <View style={styles.saveRow}>
+            <PrimaryButton
+              title="Save WhatsApp settings"
+              onPress={onSave}
+              loading={updatePrefs.isPending}
+            />
+          </View>
+          {updatePrefs.isSuccess ? (
+            <Text style={[styles.savedText, { color: colors.success }]}>
+              Saved
+            </Text>
+          ) : null}
+        </View>
+      )}
+    </SectionCard>
   );
 }
 
@@ -197,6 +314,8 @@ export default function SettingsScreen(): React.JSX.Element {
           )}
         </SectionCard>
 
+        <WhatsAppSection />
+
         <SectionCard
           title="Appearance"
           description="Switch between light and dark themes. The choice is saved on this device."
@@ -271,4 +390,15 @@ const styles = StyleSheet.create({
   toggleLabel: { fontSize: 15, fontWeight: '600' },
   toggleHint: { fontSize: 13, marginTop: 2 },
   chipLabel: { fontSize: 13, fontWeight: '600', marginTop: 12 },
+  fieldLabel: { fontSize: 13, fontWeight: '600', marginTop: 12, marginBottom: 6 },
+  input: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+  },
+  fieldError: { fontSize: 13, marginTop: 6 },
+  saveRow: { marginTop: 14 },
+  savedText: { fontSize: 13, fontWeight: '600', marginTop: 8 },
 });

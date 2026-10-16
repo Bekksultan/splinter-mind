@@ -1,17 +1,25 @@
 /**
  * Notification fan-out: Expo push to the org's operational users, honoring
  * per-user notification_prefs (enabled flag, severity filter, quiet hours).
- * Critical alerts bypass quiet hours. WhatsApp is stubbed (optional channel).
- * Every provider call is wrapped so one failing token never breaks the batch.
+ * Critical alerts bypass quiet hours.
+ * WhatsApp (Meta Cloud API, approved template) is an optional second channel:
+ * it is attempted only when WHATSAPP_TOKEN + WHATSAPP_PHONE_NUMBER_ID are set
+ * and the user opted in with a valid number. Every provider call is wrapped
+ * so one failing recipient never breaks the batch.
  */
 import {
+  DEFAULT_WHATSAPP_TEMPLATE_NAME,
+  WhatsAppCloudApiProvider,
   fetchWithRetry,
+  isValidE164,
   type NotificationProvider,
   type PushMessage,
   type SendResult,
+  type WhatsAppAlertSender,
 } from '../../../packages/core/src/index.ts';
 import type {
   Alert,
+  NotificationPref,
   QuietHours,
   Severity,
 } from '../../../packages/core/src/index.ts';
@@ -90,6 +98,31 @@ export interface FanoutSummary {
   delivered: number;
   skipped_quiet_hours: number;
   errors: string[];
+  whatsapp_targeted: number;
+  whatsapp_delivered: number;
+  whatsapp_errors: string[];
+}
+
+/** Server-side WhatsApp env. Missing token/phoneNumberId disables the channel. */
+export interface WhatsAppEnv {
+  token?: string;
+  phoneNumberId?: string;
+  templateName?: string;
+}
+
+/**
+ * Builds the WhatsApp provider from env, or null when not configured.
+ * Null is not an error: the push batch proceeds normally.
+ */
+export function createWhatsAppProvider(env: WhatsAppEnv): WhatsAppCloudApiProvider | null {
+  if (!env.token || !env.phoneNumberId) {
+    log('info', 'whatsapp channel disabled: WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID not set');
+    return null;
+  }
+  return new WhatsAppCloudApiProvider(
+    { token: env.token, phoneNumberId: env.phoneNumberId },
+    { name: env.templateName || DEFAULT_WHATSAPP_TEMPLATE_NAME },
+  );
 }
 
 export async function fanOutAlertNotifications(
@@ -97,9 +130,18 @@ export async function fanOutAlertNotifications(
   notifier: NotificationProvider,
   alert: Alert,
   now: Date = new Date(),
+  whatsapp: WhatsAppAlertSender | null = null,
 ): Promise<FanoutSummary> {
   const users = await db.getNotificationUsers(alert.organization_id);
-  const summary: FanoutSummary = { users_targeted: 0, delivered: 0, skipped_quiet_hours: 0, errors: [] };
+  const summary: FanoutSummary = {
+    users_targeted: 0,
+    delivered: 0,
+    skipped_quiet_hours: 0,
+    errors: [],
+    whatsapp_targeted: 0,
+    whatsapp_delivered: 0,
+    whatsapp_errors: [],
+  };
   if (users.length === 0) {
     log('warn', 'no notification users for org', { alert_id: alert.id, org_id: alert.organization_id });
     return summary;
@@ -142,12 +184,67 @@ export async function fanOutAlertNotifications(
       log('error', 'push send threw', { alert_id: alert.id, error: msg });
     }
   }
+
+  await fanOutWhatsApp(db, whatsapp, alert, prefByUser, summary, now);
+
   log('info', 'notification fan-out complete', {
     alert_id: alert.id,
     users_targeted: summary.users_targeted,
     delivered: summary.delivered,
     skipped_quiet_hours: summary.skipped_quiet_hours,
     errors: summary.errors.length,
+    whatsapp_targeted: summary.whatsapp_targeted,
+    whatsapp_delivered: summary.whatsapp_delivered,
+    whatsapp_errors: summary.whatsapp_errors.length,
   });
   return summary;
+}
+
+/**
+ * WhatsApp leg of the fan-out. Gated per user by: whatsapp_enabled,
+ * a valid E.164 whatsapp_number, the alert severity in their severities,
+ * and the same quiet-hours rule as push (critical bypasses).
+ * One failing recipient never breaks the others.
+ */
+async function fanOutWhatsApp(
+  db: DbPort,
+  whatsapp: WhatsAppAlertSender | null,
+  alert: Alert,
+  prefByUser: Map<string, NotificationPref>,
+  summary: FanoutSummary,
+  now: Date,
+): Promise<void> {
+  if (!whatsapp) return; // channel not configured — push batch already done
+  const branch = await db.getBranch(alert.branch_id).catch(() => null);
+  for (const [userId, pref] of prefByUser) {
+    if (!pref.whatsapp_enabled) continue;
+    const to = (pref.whatsapp_number ?? '').trim();
+    if (!isValidE164(to)) {
+      if (to) summary.whatsapp_errors.push(`user ${userId}: invalid whatsapp_number`);
+      continue;
+    }
+    if (!pref.severities.includes(alert.severity as Severity)) continue;
+    if (pref.quiet_hours && alert.severity !== 'critical' && isQuietNow(pref.quiet_hours, now)) {
+      summary.skipped_quiet_hours += 1;
+      continue;
+    }
+    summary.whatsapp_targeted += 1;
+    try {
+      const result = await whatsapp.sendAlertTemplate(to, {
+        severity: alert.severity,
+        branchName: branch?.name ?? 'Unknown branch',
+        title: alert.title,
+        timestamp: alert.created_at,
+      });
+      if (result.ok) {
+        summary.whatsapp_delivered += 1;
+      } else {
+        summary.whatsapp_errors.push(`user ${userId}: ${result.error ?? 'send failed'}`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      summary.whatsapp_errors.push(`user ${userId}: ${msg}`);
+      log('error', 'whatsapp send threw', { alert_id: alert.id, error: msg });
+    }
+  }
 }

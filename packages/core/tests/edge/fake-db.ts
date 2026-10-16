@@ -20,9 +20,12 @@ import type {
 import type {
   CameraEventPatch,
   DbPort,
+  Device,
   NewAlert,
   NewAuditLog,
+  NewCamera,
   NewCameraEvent,
+  NewDevice,
   NewRuleFire,
 } from '../../../../supabase/functions/_shared/db-port.ts';
 
@@ -110,6 +113,8 @@ export class FakeDb implements DbPort {
   prefs: NotificationPref[] = [];
   audit: AuditLog[] = [];
   snapshots = new Map<string, { bytes: Uint8Array; contentType: string }>();
+  devices = new Map<string, Device>();
+  vaultSecrets = new Map<string, { secret: string; name: string; description: string }>();
 
   seedBasics(): this {
     this.branches.set(TEST_BRANCH, testBranch());
@@ -164,7 +169,7 @@ export class FakeDb implements DbPort {
     };
     this.users.push(user);
     this.tokens.push({ user_id: user.id, expo_push_token: token, created_at: new Date().toISOString() });
-    this.prefs.push({ user_id: user.id, push_enabled: true, severities: ['critical', 'high', 'medium', 'low'], quiet_hours: null });
+    this.prefs.push({ user_id: user.id, push_enabled: true, severities: ['critical', 'high', 'medium', 'low'], quiet_hours: null, whatsapp_number: null, whatsapp_enabled: false });
     return user;
   }
 
@@ -174,6 +179,42 @@ export class FakeDb implements DbPort {
   }
   async getCamera(cameraId: string): Promise<Camera | null> {
     return this.cameras.get(cameraId) ?? null;
+  }
+  async insertCamera(row: NewCamera): Promise<Camera> {
+    const camera: Camera = {
+      id: row.id ?? uuid(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      ...row,
+    } as Camera;
+    this.cameras.set(camera.id, camera);
+    return camera;
+  }
+  async getUser(userId: string): Promise<OrgUser | null> {
+    return this.users.find((u) => u.id === userId) ?? null;
+  }
+  async getDevice(deviceId: string): Promise<Device | null> {
+    return this.devices.get(deviceId) ?? null;
+  }
+  async getDeviceByHost(branchId: string, host: string): Promise<Device | null> {
+    return (
+      [...this.devices.values()].find((d) => d.branch_id === branchId && d.host === host) ?? null
+    );
+  }
+  async insertDevice(row: NewDevice): Promise<Device> {
+    const device: Device = {
+      id: row.id ?? uuid(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      ...row,
+    } as Device;
+    this.devices.set(device.id, device);
+    return device;
+  }
+  async createVaultSecret(secret: string, name: string, description: string): Promise<string> {
+    const id = uuid();
+    this.vaultSecrets.set(id, { secret, name, description });
+    return id;
   }
   async getBranch(branchId: string): Promise<Branch | null> {
     return this.branches.get(branchId) ?? null;

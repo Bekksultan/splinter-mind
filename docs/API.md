@@ -157,6 +157,12 @@ Alert status transitions are guarded server-side: `open → acknowledged|resolve
 
 Fans out Expo push for an alert, honoring `notification_prefs` (enabled flag, severity filter, quiet hours; **critical bypasses quiet hours**).
 
+When `WHATSAPP_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID` are set, opted-in users
+(`whatsapp_enabled` + valid E.164 `whatsapp_number`, severity in their
+`severities`, same quiet-hours rule) additionally receive the approved
+`WHATSAPP_TEMPLATE_NAME` template message (default `splinter_alert`).
+Missing env → WhatsApp leg skipped silently. See `docs/WHATSAPP_SETUP.md`.
+
 **Auth:** service-role bearer.
 
 **Request body:** `{ "alert_id": "<uuid>" }`
@@ -169,11 +175,14 @@ Fans out Expo push for an alert, honoring `notification_prefs` (enabled flag, se
   "users_targeted": 2,
   "delivered": 2,
   "skipped_quiet_hours": 1,
-  "errors": []
+  "errors": [],
+  "whatsapp_targeted": 1,
+  "whatsapp_delivered": 1,
+  "whatsapp_errors": []
 }
 ```
 
-`404` when the alert does not exist. One failing token never breaks the batch (errors are collected).
+`404` when the alert does not exist. One failing token/recipient never breaks the batch (errors are collected).
 
 ---
 

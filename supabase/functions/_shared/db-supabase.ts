@@ -22,9 +22,12 @@ import { OPERATIONAL_ROLES } from '../../../packages/core/src/index.ts';
 import type {
   CameraEventPatch,
   DbPort,
+  Device,
   NewAlert,
   NewAuditLog,
+  NewCamera,
   NewCameraEvent,
+  NewDevice,
   NewRuleFire,
 } from './db-port.ts';
 
@@ -65,6 +68,54 @@ export class SupabaseDbPort implements DbPort {
     const { data, error } = await this.client.from('cameras').select('*').eq('id', cameraId).maybeSingle();
     throwIf(error, 'getCamera');
     return (data ?? null) as Camera | null;
+  }
+
+  async insertCamera(row: NewCamera): Promise<Camera> {
+    const { data, error } = await this.client.from('cameras').insert(row).select().single();
+    throwIf(error, 'insertCamera');
+    return data as Camera;
+  }
+
+  async getUser(userId: string): Promise<OrgUser | null> {
+    const { data, error } = await this.client.from('users').select('*').eq('id', userId).maybeSingle();
+    throwIf(error, 'getUser');
+    return (data ?? null) as OrgUser | null;
+  }
+
+  async getDevice(deviceId: string): Promise<Device | null> {
+    const { data, error } = await this.client.from('devices').select('*').eq('id', deviceId).maybeSingle();
+    throwIf(error, 'getDevice');
+    return (data ?? null) as Device | null;
+  }
+
+  async getDeviceByHost(branchId: string, host: string): Promise<Device | null> {
+    const { data, error } = await this.client
+      .from('devices')
+      .select('*')
+      .eq('branch_id', branchId)
+      .eq('host', host)
+      .maybeSingle();
+    throwIf(error, 'getDeviceByHost');
+    return (data ?? null) as Device | null;
+  }
+
+  async insertDevice(row: NewDevice): Promise<Device> {
+    const { data, error } = await this.client.from('devices').insert(row).select().single();
+    throwIf(error, 'insertDevice');
+    return data as Device;
+  }
+
+  async createVaultSecret(secret: string, name: string, description: string): Promise<string> {
+    const { data, error } = await this.client.rpc('store_device_secret', {
+      p_secret: secret,
+      p_name: name,
+      p_description: description,
+    });
+    throwIf(error, 'createVaultSecret');
+    if (typeof data !== 'string' || data.length === 0) {
+      throw new Error('createVaultSecret returned no secret id');
+    }
+    return data;
   }
 
   async getBranch(branchId: string): Promise<Branch | null> {
