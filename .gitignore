@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+
+# builds
+packages/core/dist/
+mobile/.expo/
+mobile/dist/
+
+# env
+.env
+.env.local
+*.key
+*.pem
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.log
