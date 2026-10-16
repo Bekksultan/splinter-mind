@@ -209,6 +209,91 @@ function digestAuthHeader(
 }
 
 // ---------------------------------------------------------------------------
+// Hikvision ISAPI discovery — minimal dependency-free XML parsing.
+// Responses are small and flat; we extract only the tags we need with
+// namespace/attribute-tolerant matching. No DOMParser (not available in all
+// runtimes), no third-party XML library (edge functions stay dependency-free).
+// ---------------------------------------------------------------------------
+
+/** Device identity from GET /ISAPI/System/deviceInfo. */
+export interface HikvisionDeviceInfo {
+  deviceName: string;
+  model: string;
+  serialNumber: string;
+  firmwareVersion?: string;
+}
+
+/** One video input channel from GET /ISAPI/System/Video/inputs/channels. */
+export interface HikvisionChannel {
+  /** ISAPI channel id, e.g. "101" (analog ch1 + digital offset). */
+  id: string;
+  name: string;
+  enabled: boolean;
+}
+
+function decodeXmlEntities(s: string): string {
+  return s
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+/** Inner text of the first <tag ...>...</tag> occurrence, or null. */
+export function xmlTagContent(xml: string, tag: string): string | null {
+  const re = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}\\s*>`, 'i');
+  const m = re.exec(xml);
+  if (!m) return null;
+  // strip any nested markup, then decode entities
+  return decodeXmlEntities(m[1]!.replace(/<[^>]+>/g, '').trim());
+}
+
+/** Inner XML of every <tag ...>...</tag> block (for repeated elements). */
+export function xmlTagBlocks(xml: string, tag: string): string[] {
+  const re = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}\\s*>`, 'gi');
+  const out: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml)) !== null) out.push(m[1]!);
+  return out;
+}
+
+/**
+ * Parse GET /ISAPI/System/deviceInfo. Missing optional fields degrade to
+ * empty strings — the device was reachable, which is what matters here.
+ */
+export function parseDeviceInfoXml(xml: string): HikvisionDeviceInfo {
+  const deviceName = xmlTagContent(xml, 'deviceName') ?? '';
+  const model = xmlTagContent(xml, 'model') ?? '';
+  const serialNumber = xmlTagContent(xml, 'serialNumber') ?? '';
+  const firmwareVersion = xmlTagContent(xml, 'firmwareVersion') ?? undefined;
+  if (!deviceName && !model && !serialNumber) {
+    throw new Error('deviceInfo: unrecognized XML payload');
+  }
+  return { deviceName, model, serialNumber, firmwareVersion };
+}
+
+/**
+ * Parse GET /ISAPI/System/Video/inputs/channels into channel entries.
+ * Channels are NOT filtered here — callers decide (onboarding keeps only
+ * enabled ones). A missing name degrades to "Camera <id>".
+ */
+export function parseVideoInputChannelsXml(xml: string): HikvisionChannel[] {
+  const out: HikvisionChannel[] = [];
+  for (const block of xmlTagBlocks(xml, 'VideoInputChannel')) {
+    const id = xmlTagContent(block, 'id');
+    if (!id) continue;
+    const enabledRaw = (xmlTagContent(block, 'videoInputEnabled') ?? '').toLowerCase();
+    out.push({
+      id: id.trim(),
+      name: xmlTagContent(block, 'name')?.trim() || `Camera ${id.trim()}`,
+      enabled: enabledRaw === 'true' || enabledRaw === '1',
+    });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // HikvisionProvider — ISAPI behind the CameraProvider interface.
 // Credentials are supplied via the constructor (server-side only) and are
 // NEVER logged. All calls have timeouts + one retry; failures degrade to
@@ -242,7 +327,7 @@ export class HikvisionProvider implements CameraProvider {
   }
 
   private channelOf(camera: CameraRef): number {
-    const raw = camera.configuration?.['channel'];
+    const raw = camera.configuration?.['channel'] ?? camera.configuration?.['channel_id'];
     const n = typeof raw === 'number' ? raw : parseInt(String(raw ?? '101'), 10);
     return Number.isFinite(n) ? n : 101;
   }
@@ -320,6 +405,39 @@ export class HikvisionProvider implements CameraProvider {
     // MVP skeleton: NVR channel enumeration (/ISAPI/ContentMgmt/InputProxy/channels)
     // is wired per deployment. Cameras are registered explicitly for now.
     return [];
+  }
+
+  /**
+   * GET /ISAPI/System/deviceInfo — device name, model, serial, firmware.
+   * Throws on network/auth/HTTP errors (callers map to device_unreachable).
+   */
+  async getDeviceInfo(): Promise<HikvisionDeviceInfo> {
+    const res = await this.isapiGet('/ISAPI/System/deviceInfo');
+    if (!res.ok) {
+      throw new Error(
+        res.status === 401 || res.status === 403
+          ? `deviceInfo rejected: authentication failed (http ${res.status})`
+          : `deviceInfo failed: http ${res.status}`,
+      );
+    }
+    return parseDeviceInfoXml(await res.text());
+  }
+
+  /**
+   * GET /ISAPI/System/Video/inputs/channels — one entry per video input
+   * channel (id, name, enabled flag).
+   * Throws on network/auth/HTTP errors.
+   */
+  async listChannels(): Promise<HikvisionChannel[]> {
+    const res = await this.isapiGet('/ISAPI/System/Video/inputs/channels');
+    if (!res.ok) {
+      throw new Error(
+        res.status === 401 || res.status === 403
+          ? `channels rejected: authentication failed (http ${res.status})`
+          : `channels failed: http ${res.status}`,
+      );
+    }
+    return parseVideoInputChannelsXml(await res.text());
   }
 }
 

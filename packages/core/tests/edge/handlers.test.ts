@@ -9,6 +9,11 @@ import {
   MockVisionAnalyzer,
   type NotificationProvider,
 } from '../../src/providers.ts';
+import type {
+  WhatsAppAlertParams,
+  WhatsAppAlertSender,
+  WhatsAppTemplateResult,
+} from '../../src/whatsapp.ts';
 import { handleHikvisionWebhook } from '../../../../supabase/functions/hikvision-webhook/handler.ts';
 import { handleProcessEvent } from '../../../../supabase/functions/process-event/handler.ts';
 import { handleCreateAlert } from '../../../../supabase/functions/create-alert/handler.ts';
@@ -397,6 +402,129 @@ describe('send-notification', () => {
       body: JSON.stringify({ alert_id: 'missing' }),
     });
     expect((await handleSendNotification(req, { db, notifier: new MockNotificationProvider() })).status).toBe(404);
+  });
+
+  it('skips WhatsApp when no provider is wired', async () => {
+    const db = new FakeDb().seedBasics();
+    const user = db.seedNotificationUser();
+    db.prefs.find((p) => p.user_id === user.id)!.whatsapp_enabled = true;
+    db.prefs.find((p) => p.user_id === user.id)!.whatsapp_number = '+996555123456';
+    const alert = await alertFixture(db);
+    const req = new Request('https://functions.test/send-notification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alert_id: alert.id }),
+    });
+    // no `whatsapp` dep: channel skipped silently, push batch unaffected
+    const res = await handleSendNotification(req, { db, notifier: new MockNotificationProvider() });
+    expect(res.status).toBe(200);
+    const summary = (await res.json()) as { whatsapp_targeted: number; whatsapp_delivered: number };
+    expect(summary.whatsapp_targeted).toBe(0);
+    expect(summary.whatsapp_delivered).toBe(0);
+  });
+
+  it('sends WhatsApp only to opted-in users with matching severity', async () => {
+    const db = new FakeDb().seedBasics();
+    const optedIn = db.seedNotificationUser();
+    db.prefs.find((p) => p.user_id === optedIn.id)!.whatsapp_enabled = true;
+    db.prefs.find((p) => p.user_id === optedIn.id)!.whatsapp_number = '+996555123456';
+    const notOptedIn = db.seedNotificationUser({}, 'ExponentPushToken[other]');
+    db.prefs.find((p) => p.user_id === notOptedIn.id)!.whatsapp_enabled = false;
+    db.prefs.find((p) => p.user_id === notOptedIn.id)!.whatsapp_number = '+996555999999';
+
+    const calls: Array<{ to: string; params: WhatsAppAlertParams }> = [];
+    const whatsapp: WhatsAppAlertSender = {
+      sendAlertTemplate: async (to, params): Promise<WhatsAppTemplateResult> => {
+        calls.push({ to, params });
+        return { ok: true, delivered: 1, messageId: 'wamid.x' };
+      },
+    };
+
+    const alert = await alertFixture(db, 'medium');
+    const req = new Request('https://functions.test/send-notification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alert_id: alert.id }),
+    });
+    const res = await handleSendNotification(req, {
+      db,
+      notifier: new MockNotificationProvider(),
+      whatsapp,
+    });
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.to).toBe('+996555123456');
+    expect(calls[0]?.params.severity).toBe('medium');
+    expect(calls[0]?.params.title).toBe('Test alert');
+    const summary = (await res.json()) as {
+      whatsapp_targeted: number;
+      whatsapp_delivered: number;
+      whatsapp_errors: string[];
+    };
+    expect(summary.whatsapp_targeted).toBe(1);
+    expect(summary.whatsapp_delivered).toBe(1);
+    expect(summary.whatsapp_errors).toEqual([]);
+  });
+
+  it('skips WhatsApp for severities the user did not subscribe to', async () => {
+    const db = new FakeDb().seedBasics();
+    const user = db.seedNotificationUser();
+    const pref = db.prefs.find((p) => p.user_id === user.id)!;
+    pref.whatsapp_enabled = true;
+    pref.whatsapp_number = '+996555123456';
+    pref.severities = ['critical']; // medium alerts not wanted
+
+    const calls: Array<{ to: string }> = [];
+    const whatsapp: WhatsAppAlertSender = {
+      sendAlertTemplate: async (to): Promise<WhatsAppTemplateResult> => {
+        calls.push({ to });
+        return { ok: true, delivered: 1 };
+      },
+    };
+    const alert = await alertFixture(db, 'medium');
+    const req = new Request('https://functions.test/send-notification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alert_id: alert.id }),
+    });
+    await handleSendNotification(req, { db, notifier: new MockNotificationProvider(), whatsapp });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('collects per-recipient WhatsApp errors without breaking the batch', async () => {
+    const db = new FakeDb().seedBasics();
+    const u1 = db.seedNotificationUser();
+    db.prefs.find((p) => p.user_id === u1.id)!.whatsapp_enabled = true;
+    db.prefs.find((p) => p.user_id === u1.id)!.whatsapp_number = '+996555111111';
+    const u2 = db.seedNotificationUser({}, 'ExponentPushToken[second]');
+    db.prefs.find((p) => p.user_id === u2.id)!.whatsapp_enabled = true;
+    db.prefs.find((p) => p.user_id === u2.id)!.whatsapp_number = '+996555222222';
+
+    const whatsapp: WhatsAppAlertSender = {
+      sendAlertTemplate: async (to): Promise<WhatsAppTemplateResult> =>
+        to === '+996555111111'
+          ? { ok: false, error: 'whatsapp template send failed: http 400' }
+          : { ok: true, delivered: 1 },
+    };
+    const alert = await alertFixture(db, 'medium');
+    const req = new Request('https://functions.test/send-notification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alert_id: alert.id }),
+    });
+    const res = await handleSendNotification(req, {
+      db,
+      notifier: new MockNotificationProvider(),
+      whatsapp,
+    });
+    const summary = (await res.json()) as {
+      whatsapp_targeted: number;
+      whatsapp_delivered: number;
+      whatsapp_errors: string[];
+    };
+    expect(summary.whatsapp_targeted).toBe(2);
+    expect(summary.whatsapp_delivered).toBe(1);
+    expect(summary.whatsapp_errors).toHaveLength(1);
   });
 });
 

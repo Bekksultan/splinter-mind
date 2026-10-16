@@ -711,6 +711,8 @@ function seed(now: number): DemoState {
       push_enabled: true,
       severities: ['critical', 'high', 'medium'],
       quiet_hours: { start: '23:00', end: '07:00', timezone: 'Asia/Bishkek' },
+      whatsapp_number: null,
+      whatsapp_enabled: false,
     },
   };
 }
