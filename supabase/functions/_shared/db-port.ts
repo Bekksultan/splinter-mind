@@ -24,6 +24,31 @@ import type {
 
 export type NewCameraEvent = Omit<CameraEvent, 'id' | 'created_at' | 'processed_at'> & { id?: string };
 
+export type NewCamera = Omit<Camera, 'id' | 'created_at' | 'updated_at'> & { id?: string };
+
+/**
+ * Registered ISAPI device (NVR). Mirrors public.devices (migration 0004).
+ * credentials_ref is a Supabase Vault secret id — never the password itself.
+ */
+export interface Device {
+  id: string;
+  organization_id: string;
+  branch_id: string;
+  name: string;
+  provider: string;
+  host: string;
+  port: number;
+  use_https: boolean;
+  username: string | null;
+  credentials_ref: string | null;
+  status: string;
+  last_seen_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type NewDevice = Omit<Device, 'id' | 'created_at' | 'updated_at'> & { id?: string };
+
 export type CameraEventPatch = Partial<
   Pick<CameraEvent, 'snapshot_url' | 'video_url' | 'ai_analysis' | 'severity' | 'processed_at'>
 >;
@@ -40,9 +65,21 @@ export interface DbPort {
   // cameras / branches
   getCameraByExternalId(externalId: string): Promise<Camera | null>;
   getCamera(cameraId: string): Promise<Camera | null>;
+  insertCamera(row: NewCamera): Promise<Camera>;
   getBranch(branchId: string): Promise<Branch | null>;
   updateCameraLastSeen(cameraId: string, atIso: string): Promise<void>;
   updateCameraStatus(cameraId: string, status: CameraStatus, lastSeenIso: string): Promise<void>;
+
+  // users
+  getUser(userId: string): Promise<OrgUser | null>;
+
+  // devices (migration 0004)
+  getDevice(deviceId: string): Promise<Device | null>;
+  getDeviceByHost(branchId: string, host: string): Promise<Device | null>;
+  insertDevice(row: NewDevice): Promise<Device>;
+
+  // vault (service_role only; backed by the store_device_secret RPC)
+  createVaultSecret(secret: string, name: string, description: string): Promise<string>;
 
   // rules
   getRules(organizationId: string): Promise<Rule[]>;

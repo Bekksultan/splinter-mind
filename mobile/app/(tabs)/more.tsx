@@ -12,6 +12,7 @@ import {
   Activity,
   ArrowLeftRight,
   ChevronRight,
+  Plug,
   Settings,
   UserCircle,
   Users,
@@ -51,6 +52,12 @@ const MENU: MenuItem[] = [
     description: 'Staff directory and shifts',
     icon: Users,
     route: '/employees',
+  },
+  {
+    label: 'Integrations',
+    description: 'Hikvision NVRs and camera devices',
+    icon: Plug,
+    route: '/integrations',
   },
   {
     label: 'Profile',
