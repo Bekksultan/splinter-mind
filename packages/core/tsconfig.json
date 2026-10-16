@@ -1,0 +1,1 @@
+{"compilerOptions":{"allowImportingTsExtensions":true,"forceConsistentCasingInFileNames":true,"isolatedModules":true,"lib":["ES2022","DOM"],"module":"ESNext","moduleResolution":"Bundler","noEmit":true,"resolveJsonModule":true,"skipLibCheck":true,"strict":true,"target":"ES2022"},"include":["src","tests"]}

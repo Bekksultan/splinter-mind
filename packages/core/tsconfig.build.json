@@ -1,0 +1,1 @@
+{"compilerOptions":{"declaration":true,"declarationMap":true,"noEmit":false,"outDir":"dist","rewriteRelativeImportExtensions":true,"sourceMap":true},"extends":"./tsconfig.json","include":["src"]}

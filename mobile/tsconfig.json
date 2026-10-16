@@ -1,0 +1,1 @@
+{"compilerOptions":{"baseUrl":".","jsx":"react-jsx","module":"esnext","moduleResolution":"bundler","noImplicitAny":true,"resolveJsonModule":true,"skipLibCheck":true,"strict":true,"target":"es2020"},"extends":"expo/tsconfig.base","include":["app","components","lib","services","stores","types","constants"]}
