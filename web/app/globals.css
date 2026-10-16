@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+@theme {
+  /* Splinter Mind severity palette — ARCHITECTURE.md §3, exact values */
+  --color-critical: #dc2626;
+  --color-high: #ea580c;
+  --color-medium: #d97706;
+  --color-low: #2563eb;
+  --color-success: #16a34a;
+  --color-neutral: #64748b;
+
+  --color-ink: #0f172a;
+  --color-ink-soft: #334155;
+  --color-muted: #64748b;
+  --color-line: #e2e8f0;
+  --color-surface: #f8fafc;
+  --color-card: #ffffff;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
+html {
+  font-family: var(--font-sans);
+}
+
+body {
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Dense B2B tables */
+.table-dense th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-muted);
+  font-weight: 700;
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-line);
+  white-space: nowrap;
+}
+.table-dense td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--color-line);
+  font-size: 13.5px;
+  vertical-align: middle;
+}
+.table-dense tbody tr:last-child td {
+  border-bottom: none;
+}
+.table-dense tbody tr:hover td {
+  background-color: #f1f5f9;
+}

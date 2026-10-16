@@ -5,4 +5,5 @@
 
 export * from './types.ts';
 export * from './providers.ts';
+export * from './whatsapp.ts';
 export * from './rules.ts';

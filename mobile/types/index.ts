@@ -32,6 +32,26 @@ export interface AlertNoteWithAuthor extends AlertNote {
   user_name: string | null;
 }
 
+/**
+ * Registered ISAPI device (NVR) — mirrors public.devices (migration 0004).
+ * credentials_ref is a Vault secret id; the password never reaches the app.
+ */
+export interface Device {
+  id: string;
+  organization_id: string;
+  branch_id: string;
+  name: string;
+  provider: string;
+  host: string;
+  port: number;
+  use_https: boolean;
+  username: string | null;
+  status: string;
+  last_seen_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /** UI-only timeline entry (branch detail, alert detail, camera detail). */
 export interface TimelineItem {
   id: string;

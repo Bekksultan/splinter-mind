@@ -1,0 +1,28 @@
+{
+  "name": "splinter-mind-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "npm --prefix ../packages/core install --no-audit --no-fund && npm --prefix ../packages/core run build && rm -rf ./vendor/splinter-core && mkdir -p ./vendor/splinter-core && cp -r ../packages/core/dist ./vendor/splinter-core/dist"
+  },
+  "dependencies": {
+    "@splinter-mind/core": "file:../packages/core",
+    "@supabase/ssr": "^0.5.2",
+    "@supabase/supabase-js": "^2.44.0",
+    "next": "^16.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.0",
+    "@types/node": "^20.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0"
+  }
+}
